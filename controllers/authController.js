@@ -1,24 +1,77 @@
 const path = require("path");
 const bcrypt = require("bcrypt");
-const db = require("../database.js");
+const mongoose = require("mongoose");
+const { v4: uuidv4 } = require("uuid");
+const { User, Employer, Freelancer, Admin } = require("../models");
 
 exports.postSignup = async (req, res) => {
   const { name, email, password, role } = req.body;
+
   try {
+    // Validate required fields
+    if (!email || !password || !role) {
+      return res.send(
+        '<script>alert("Email, password, and role are required"); window.location="/signup";</script>'
+      );
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.send(
+        '<script>alert("Email already exists"); window.location="/signup";</script>'
+      );
+    }
+
+    // Generate UUID for roleId and userId
+    const roleId = uuidv4();
+    const userId = uuidv4();
+
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-    db.run(
-      "INSERT INTO users (email, password, role, name) VALUES (?, ?, ?, ?)",
-      [email, hashedPassword, role, name],
-      (err) => {
-        if (err) {
-          console.log("Signup error:", err);
-          return res.send(
-            '<script>alert("Email already exists"); window.location="/signup";</script>'
-          );
-        }
-        res.redirect("/login");
-      }
-    );
+
+    // Create new user
+    const newUser = new User({
+      userId,
+      email,
+      password: hashedPassword,
+      role,
+      roleId,
+      name: name || "",
+    });
+
+    // Create corresponding role-specific tuple
+    let roleEntity;
+    switch (role.toLowerCase()) {
+      case "employer":
+        roleEntity = new Employer({
+          employerId: roleId,
+          userId,
+        });
+        break;
+      case "freelancer":
+        roleEntity = new Freelancer({
+          freelancerId: roleId,
+          userId,
+        });
+        break;
+      case "admin":
+        roleEntity = new Admin({
+          adminId: roleId,
+          userId,
+        });
+        break;
+      default:
+        return res.send(
+          '<script>alert("Invalid role"); window.location="/signup";</script>'
+        );
+    }
+
+    // Save user and role entity sequentially
+    await newUser.save();
+    await roleEntity.save();
+
+    res.redirect("/login");
   } catch (error) {
     console.log("Signup catch error:", error);
     res.send(
@@ -27,51 +80,79 @@ exports.postSignup = async (req, res) => {
   }
 };
 
-exports.postLogin = (req, res) => {
+exports.postLogin = async (req, res) => {
   const { email, password, role } = req.body;
-  db.get(
-    "SELECT * FROM users WHERE email = ? AND role = ?",
-    [email, role],
-    async (err, user) => {
-      if (err || !user) {
-        // Redirect with error message
-        return res.redirect("/login?error=Invalid email or role");
-      }
-      const match = await bcrypt.compare(password, user.password);
-      if (match) {
-        req.session.user = {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          name: user.name,
-          authenticated: true,
-        };
-        console.log(
-          "User logged in, session set:",
-          req.session.user,
-          "Session ID:",
-          req.sessionID
-        );
-        req.session.save((err) => {
-          if (err) {
-            console.error("Session save error:", err);
-            return res.status(500).send("Server error during login");
-          }
-          console.log(`Redirecting ${role} to dashboard`);
+
+  try {
+    // Validate required fields
+    if (!email || !password || !role) {
+      return res.redirect("/login?error=Missing email, password, or role");
+    }
+
+    // Find user by email and role
+    const user = await User.findOne({ email, role });
+
+    if (!user) {
+      return res.redirect("/login?error=Invalid email or role");
+    }
+
+    // Check if user has a password
+    if (!user.password) {
+      return res.redirect("/login?error=Account has no password set");
+    }
+
+    // Check password
+    const match = await bcrypt.compare(password, user.password);
+
+    if (match) {
+      // Set user session
+      req.session.user = {
+        id: user.userId,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+        roleId: user.roleId,
+        authenticated: true,
+      };
+
+      console.log(
+        "User logged in, session set:",
+        req.session.user,
+        "Session ID:",
+        req.sessionID
+      );
+
+      // Save session and redirect
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).send("Server error during login");
+        }
+
+        console.log(`Redirecting ${role} to dashboard`);
+        try {
           if (role === "Admin") {
             res.redirect("/adminD/profile");
           } else if (role === "Employer") {
             res.redirect("/employerD/profile");
           } else if (role === "Freelancer") {
             res.redirect("/freelancerD/profile");
+          } else {
+            console.error("Invalid role for redirect:", role);
+            res.redirect("/?error=Invalid role");
           }
-        });
-      } else {
-        // Redirect with error message for incorrect password
-        res.redirect("/login?error=Incorrect password");
-      }
+        } catch (redirectErr) {
+          console.error("Redirect error:", redirectErr);
+          res.status(500).send("Error redirecting to dashboard");
+        }
+      });
+    } else {
+      res.redirect("/login?error=Incorrect password");
     }
-  );
+  } catch (error) {
+    console.error("Login error:", error);
+    res.redirect("/login?error=Server error");
+  }
 };
 
 exports.getLogout = (req, res) => {

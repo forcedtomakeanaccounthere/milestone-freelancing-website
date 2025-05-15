@@ -1,38 +1,27 @@
 const express = require("express");
+const router = express.Router();
 const employerController = require("../controllers/employerController");
 
-const router = express.Router();
-
-router.route("/").get(employerController.getEmployerProfile);
-router.route("/profile").get(employerController.getEmployerProfile);
-
-router.route("/job-listings").get(employerController.getJobListings);
-router
-  .route("/job-listings/see_more/:jobId")
-  .get(employerController.geSeemoreJoblistings);
-router
-  .route("/job-listings/see_more/job/view_profile")
-  .get(employerController.getDetailsofAppliers);
-
-router.route("/current-jobs").get(employerController.getCurrentJobs);
-router.route("/current-jobs/chat").get(employerController.getChatsCurrentJobs);
-router
-  .route("/current-jobs/see_more")
-  .get(employerController.getSeemoreCurrentJobs);
-
-router
-  .route("/current-jobs/see_more/milestone")
-  .get(employerController.getmilestoneCurrentjob);
-
-router.route("/previously-worked").get(employerController.getPreviouslyWorked);
-
-router
-  .route("/transaction-history")
-  .get(employerController.getTransactionHistory);
-router
-  .route("/transaction-history/milestone/:txnId")
-  .get(employerController.getmilestoneTransactionHistory);
-
-router.route("/subscription").get(employerController.getSubscription);
+router.get("/current_jobs", employerController.getCurrentJobs);
+router.get("/job_listings", employerController.getJobListings);
+router.get("/job_listings/new", employerController.getNewJobForm);
+router.post("/job_listings/new", employerController.createJobListing);
+router.get("/job_listings/edit/:jobId", employerController.getEditJobForm);
+router.post("/job_listings/edit/:jobId", employerController.updateJobListing);
+router.get("/job_applications", employerController.getJobApplications);
+router.post("/job_applications/:applicationId/accept", employerController.acceptJobApplication);
+router.post("/job_applications/:applicationId/reject", employerController.rejectJobApplication);
+router.get("/profile", employerController.getProfile);
+router.get("/profile/edit", employerController.getEditProfile);
+router.post("/profile/edit", employerController.updateProfile);
+router.get("/transaction_history", employerController.getTransactionHistory);
+router.get("/transaction_history/milestone", employerController.getMilestone);
+router.get("/previously_worked", employerController.getPreviouslyWorked);
+router.get("/milestones", employerController.getMilestone);
+router.get("/view_profile", employerController.getViewprofile);
+router.post("/milestone/:jobId/:milestoneId/pay", employerController.payMilestone);
+router.get("/subscription", employerController.getSubscription);
+router.get("/payment", employerController.getPaymentAnimation);
+router.post("/upgrade_subscription", employerController.upgradeSubscription);
 
 module.exports = router;

@@ -1,11 +1,23 @@
 {
-  "name": "milestone---freelancing-website",
+  "name": "milestone",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js"
+    "start": "nodemon index.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Catwithatail/MileStone.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Catwithatail/MileStone/issues"
+  },
+  "homepage": "https://github.com/Catwithatail/MileStone#readme",
   "dependencies": {
     "bcrypt": "^5.1.1",
     "ejs": "^3.1.10",
@@ -13,11 +25,12 @@
     "express-session": "^1.18.1",
     "kill-port": "^2.0.1",
     "mongodb": "^6.13.0",
+    "mongoose": "^8.14.1",
     "node": "^23.8.0",
     "nodemon": "^3.1.9",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "uuid": "^11.1.0"
   },
-  "author": "",
-  "license": "ISC",
+  "devDependencies": {},
   "description": ""
 }
