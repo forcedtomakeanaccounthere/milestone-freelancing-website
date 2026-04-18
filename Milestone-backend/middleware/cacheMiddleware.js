@@ -22,7 +22,8 @@ const cacheMiddleware = (ttl = 300) => {
 
     try {
       // Create a unique cache key based on route, queries, and user (if applicable)
-      const userIdentifier = req.user ? req.user.id : "guest";
+      const userIdentifier =
+        req.user?.id || req.session?.user?.id || req.session?.user?.email || "guest";
       const cacheKey = `cache:${req.originalUrl || req.url}:${userIdentifier}`;
 
       // 1. Try fetching from Cache

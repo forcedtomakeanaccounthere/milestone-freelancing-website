@@ -20,8 +20,7 @@ const generateSlug = (title) => {
 const addSlugsToBlogs = async () => {
   try {
     await mongoose.connect(
-      process.env.MONGO_URL ||
-        "mongodb+srv://amanraj3567:Passw0rd@react-m-cluster.gz7cugu.mongodb.net/milestone_db?retryWrites=true&w=majority",
+      process.env.MONGO_URL || "mongodb://127.0.0.1:27017/Milestone",
     );
     console.log("Connected to MongoDB");
 

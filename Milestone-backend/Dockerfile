@@ -16,7 +16,7 @@ COPY package*.json ./
 FROM base AS prod-deps
 
 # Install only runtime dependencies for a smaller final image.
-RUN npm ci --omit=dev && npm cache clean --force
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi && npm cache clean --force
 
 # -----------------------------
 # Runtime stage
