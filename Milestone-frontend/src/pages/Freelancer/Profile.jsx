@@ -1,0 +1,400 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import DashboardPage from '../../components/DashboardPage';
+import BadgesList from '../Profile/BadgesList';
+import PublicFeedbackSection from '../../components/PublicFeedbackSection';
+
+const FreelancerProfile = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [profileData, setProfileData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  
+  const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:9000';
+
+  useEffect(() => {
+    // Load user data from auth context or API
+    const fetchProfileData = async () => {
+      try {
+        if (user) {
+          // Fetch profile data from backend
+          const response = await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:9000'}/api/freelancer/profile`, {
+            method: 'GET',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+              setProfileData(result.data);
+            } else {
+              console.error('Failed to fetch profile:', result.error);
+              // Fallback to user context data
+              setProfileData({
+                name: user.name || 'N/A',
+                email: user.email || 'N/A',
+                phone: user.phone || 'N/A',
+                location: user.location || 'N/A',
+                role: user.role || 'Freelancer',
+                picture: user.picture || 'https://cdn.pixabay.com/photo/2018/04/18/18/56/user-3331256_1280.png',
+                aboutMe: user.aboutMe || '',
+                skills: user.skills || [],
+                experience: user.experience || [],
+                education: user.education || [],
+                portfolio: user.portfolio || [],
+                resume: user.resume || '',
+                rating: user.rating || 0
+              });
+            }
+          } else {
+            // Fallback to user context data
+            setProfileData({
+              name: user.name || 'N/A',
+              email: user.email || 'N/A',
+              phone: user.phone || 'N/A',
+              location: user.location || 'N/A',
+              role: user.role || 'Freelancer',
+              picture: user.picture || 'https://cdn.pixabay.com/photo/2018/04/18/18/56/user-3331256_1280.png',
+              aboutMe: user.aboutMe || '',
+              skills: user.skills || [],
+              experience: user.experience || [],
+              education: user.education || [],
+              portfolio: user.portfolio || [],
+              resume: user.resume || '',
+              rating: user.rating || 0
+            });
+          }
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+        // Fallback to user context data
+        if (user) {
+          setProfileData({
+            name: user.name || 'N/A',
+            email: user.email || 'N/A',
+            phone: user.phone || 'N/A',
+            location: user.location || 'N/A',
+            role: user.role || 'Freelancer',
+            picture: user.picture || 'https://cdn.pixabay.com/photo/2018/04/18/18/56/user-3331256_1280.png',
+            aboutMe: user.aboutMe || '',
+            skills: user.skills || [],
+            experience: user.experience || [],
+            education: user.education || [],
+            portfolio: user.portfolio || [],
+            resume: user.resume || '',
+            rating: user.rating || 0
+          });
+        }
+        setLoading(false);
+      }
+    };
+
+    fetchProfileData();
+  }, [user, refreshKey]);
+
+  // Listen for storage events to refresh when profile is updated
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'profileUpdated') {
+        setRefreshKey(prev => prev + 1);
+        localStorage.removeItem('profileUpdated');
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also check on mount if there's a pending update
+    if (localStorage.getItem('profileUpdated')) {
+      setRefreshKey(prev => prev + 1);
+      localStorage.removeItem('profileUpdated');
+    }
+
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  if (loading) {
+    return (
+      <DashboardPage title="Profile">
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading profile...</p>
+          </div>
+        </div>
+      </DashboardPage>
+    );
+  }
+
+  if (!profileData) {
+    return (
+      <DashboardPage title="Profile">
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-gray-600">No profile data available.</p>
+          </div>
+        </div>
+      </DashboardPage>
+    );
+  }
+
+  return (
+    <DashboardPage title="Profile">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center justify-between gap-3 mb-6 mt-0 sm:-mt-2">
+          <p className="text-gray-600 text-sm sm:text-base pr-2">Manage your profile by adding projects and your resume</p>
+          <button
+            onClick={() => navigate('/freelancer/profile/edit')}
+            className="inline-flex items-center justify-center h-10 w-10 sm:h-auto sm:w-auto sm:px-5 sm:py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors gap-2 text-sm sm:text-base shrink-0"
+            aria-label="Edit profile"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-4 h-4"
+            >
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+            </svg>
+            <span className="hidden sm:inline">Edit Profile</span>
+          </button>
+        </div>
+
+        {/* Profile Header — two-column: left = profile card, right = reviews */}
+        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6 mb-6">
+
+          {/* ── Left: Profile Card ── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 flex flex-col items-center text-center justify-center h-[460px]">
+            {/* Avatar */}
+            <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-blue-500 bg-gray-900 mb-4 flex-shrink-0">
+              <img
+                src={profileData.picture}
+                alt="Profile"
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  e.target.src = 'https://cdn.pixabay.com/photo/2018/04/18/18/56/user-3331256_1280.png';
+                }}
+              />
+            </div>
+
+            {/* Name & role */}
+            <h2 className="text-2xl font-bold text-gray-900 mb-1">{profileData.name}</h2>
+            <span className="inline-block px-3 py-1 bg-blue-50 text-blue-600 text-xs font-semibold rounded-full mb-4">
+              {profileData.role}
+            </span>
+
+            {/* Rating */}
+            <div className="flex items-center justify-center gap-1 text-amber-400 text-lg mb-5">
+              {[1,2,3,4,5].map((star) => (
+                <span key={star}>{star <= Math.floor(profileData.rating) ? '★' : '☆'}</span>
+              ))}
+              <span className="text-gray-600 font-semibold text-sm ml-1">{profileData.rating}/5</span>
+            </div>
+
+            {/* Divider */}
+            <div className="w-full border-t border-gray-100 mb-5" />
+
+            {/* Contact details */}
+            <div className="w-full space-y-3 text-left">
+              <div className="flex items-center gap-3 text-gray-600 text-sm">
+                <span className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 flex-shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+                  </svg>
+                </span>
+                <span className="truncate">{profileData.location || 'Not specified'}</span>
+              </div>
+              <div className="flex items-center gap-3 text-gray-600 text-sm">
+                <span className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 flex-shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+                  </svg>
+                </span>
+                <span className="truncate">{profileData.email}</span>
+              </div>
+              <div className="flex items-center gap-3 text-gray-600 text-sm">
+                <span className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 flex-shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+                  </svg>
+                </span>
+                <span>{profileData.phone || 'Not specified'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Right: Reviews & Ratings ── */}
+          <div className="h-[460px]">
+            <PublicFeedbackSection
+              userId={user?.id}
+              userRole="Freelancer"
+              overrideRating={profileData?.rating}
+            />
+          </div>
+        </div>
+
+        {/* Main Content Grid */}
+        <div className="space-y-6">
+          {/* About Me Section */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">About Me</h3>
+              
+            <div className="text-gray-600 leading-relaxed">
+              {profileData.aboutMe || 'No description provided.'}
+            </div>
+          </div>
+
+          {/* Skills Section */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">Skills</h3>
+            <div className="flex flex-wrap gap-2">
+              {profileData.skills && profileData.skills.length > 0 ? (
+                profileData.skills.map((skill, index) => (
+                  <span 
+                    key={index}
+                    className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg font-medium text-sm"
+                  >
+                    {skill}
+                  </span>
+                ))
+              ) : (
+                <p className="text-gray-500">No skills added yet.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Experience Section */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">Experience</h3>
+            <div className="space-y-4">
+              {profileData.experience && profileData.experience.length > 0 ? (
+                profileData.experience.map((exp, index) => (
+                  <div key={index} className="border-b border-gray-200 last:border-0 pb-4 last:pb-0">
+                    <h5 className="font-semibold text-gray-900 text-lg">{exp.title || 'N/A'}</h5>
+                    <p className="text-sm text-gray-500 mb-2">{exp.date || 'N/A'}</p>
+                    <p className="text-gray-600">{exp.description || 'No description provided.'}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-gray-500">No experience added yet.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Education Section */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">Education</h3>
+            <div className="space-y-4">
+              {profileData.education && profileData.education.length > 0 ? (
+                profileData.education.map((edu, index) => (
+                  <div key={index} className="border-b border-gray-200 last:border-0 pb-4 last:pb-0">
+                    <h5 className="font-semibold text-gray-900 text-lg">{edu.degree || 'N/A'}</h5>
+                    <p className="text-sm text-gray-600 mb-1">{edu.institution || 'N/A'}</p>
+                    <p className="text-sm text-gray-500">{edu.date || 'N/A'}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-gray-500">No education added yet.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Portfolio Section */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">Portfolio</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {profileData.portfolio && profileData.portfolio.length > 0 ? (
+                profileData.portfolio.map((item, index) => (
+                  <div key={index} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-shadow">
+                    <img 
+                      src={item.image || '/assets/portfolio/default.png'} 
+                      alt={item.title || 'Portfolio Item'}
+                      className="w-full h-48 object-cover"
+                      onError={(e) => {
+                        e.target.src = '/assets/portfolio/default.png';
+                      }}
+                    />
+                    <div className="p-4">
+                      <h5 className="font-semibold text-gray-900 mb-2">{item.title || 'N/A'}</h5>
+                      <p className="text-gray-600 text-sm mb-3">{item.description || 'No description provided.'}</p>
+                      <a 
+                        href={item.link || '#'} 
+                        className="text-blue-500 hover:text-blue-600 font-medium text-sm"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        View Project →
+                      </a>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-gray-500">No portfolio items added yet.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Resume Section */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">Resume</h3>
+            {profileData.resume ? (
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => {
+                    let fullUrl = profileData.resume;
+                    if (profileData.resume.startsWith('/uploads')) {
+                      fullUrl = `${API_BASE_URL}${profileData.resume}`;
+                    }
+                    window.open(fullUrl, '_blank');
+                  }}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 transition-colors"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                  View Resume
+                </button>
+               
+              </div>
+            ) : (
+              <p className="text-gray-500">No resume uploaded yet.</p>
+            )}
+          </div>
+
+          {/* Badges Section */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">Skill Badges</h3>
+              
+            <BadgesList userId={user?.id} />
+          </div>
+
+          {/* Reviews & Feedback moved to top-right column */}
+        </div>
+      </div>
+    </DashboardPage>
+  );
+};
+
+export default FreelancerProfile;
+
