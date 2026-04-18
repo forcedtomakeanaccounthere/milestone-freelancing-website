@@ -28,14 +28,18 @@ ENV PORT=9000
 
 WORKDIR /app
 
-# Use the unprivileged node user included in the official image.
-USER node
-
 # Copy production node_modules with proper ownership.
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 
 # Copy app source.
 COPY --chown=node:node . .
+
+# Ensure runtime-writable directories exist for uploads/logging.
+RUN mkdir -p /app/uploads/verification_doc /app/uploads/resumes /app/logs \
+    && chown -R node:node /app/uploads /app/logs
+
+# Use the unprivileged node user included in the official image.
+USER node
 
 EXPOSE 9000
 
