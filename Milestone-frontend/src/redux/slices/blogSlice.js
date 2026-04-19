@@ -1,14 +1,13 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:9000';
+import { buildApiUrl } from '../../utils/apiBase';
 
 // Async thunks for blog operations
 export const fetchAllBlogs = createAsyncThunk(
   'blog/fetchAllBlogs',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${apiBaseUrl}/api/blogs`);
+      const response = await axios.get(buildApiUrl('/api/blogs'));
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch blogs');
@@ -20,7 +19,7 @@ export const fetchLatestBlogs = createAsyncThunk(
   'blog/fetchLatestBlogs',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${apiBaseUrl}/api/blogs/latest`);
+      const response = await axios.get(buildApiUrl('/api/blogs/latest'));
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch latest blogs');
@@ -32,7 +31,7 @@ export const fetchFeaturedBlog = createAsyncThunk(
   'blog/fetchFeaturedBlog',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${apiBaseUrl}/api/blogs/featured`);
+      const response = await axios.get(buildApiUrl('/api/blogs/featured'));
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch featured blog');
@@ -44,7 +43,7 @@ export const fetchBlogById = createAsyncThunk(
   'blog/fetchBlogById',
   async (blogId, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${apiBaseUrl}/api/blogs/${blogId}`);
+      const response = await axios.get(buildApiUrl(`/api/blogs/${blogId}`));
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch blog');
@@ -56,7 +55,7 @@ export const fetchRecentBlogs = createAsyncThunk(
   'blog/fetchRecentBlogs',
   async (excludeId, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${apiBaseUrl}/api/blogs/latest`);
+      const response = await axios.get(buildApiUrl('/api/blogs/latest'));
       if (response.data.success && response.data.blogs) {
         // Filter out the current blog if excludeId is provided
         const blogs = excludeId 

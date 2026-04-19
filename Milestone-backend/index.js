@@ -43,14 +43,37 @@ const solrClient = require("./config/solr");
 const app = express();
 const server = http.createServer(app);
 
-// Global allowed origins for CORS
-const allowedOrigins = [
+const normalizeOrigin = (origin) =>
+  (origin || "").trim().replace(/\/+$/, "");
+
+const envOrigins = [
   process.env.FRONTEND_ORIGIN,
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "http://localhost:3002",
-  "http://localhost:5173",
-].filter(Boolean);
+  ...(process.env.FRONTEND_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+];
+
+// Global allowed origins for CORS
+const allowedOrigins = Array.from(
+  new Set(
+    [
+      ...envOrigins,
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:3002",
+      "http://localhost:5173",
+    ]
+      .map(normalizeOrigin)
+      .filter(Boolean),
+  ),
+);
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  const normalized = normalizeOrigin(origin);
+  return allowedOrigins.includes(normalized);
+};
 
 app.use(
   helmet({
@@ -68,7 +91,10 @@ app.use(morgan("combined", { stream: logStream }));
 
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) return callback(null, true);
+      return callback(new Error(`Not allowed by Socket.IO CORS: ${origin}`));
+    },
     credentials: true,
     methods: ["GET", "POST"],
   },
@@ -80,23 +106,23 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 9000;
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error(`Not allowed by CORS: ${origin}`));
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  }),
-);
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Not allowed by CORS: ${origin}`));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.use(cors(corsOptions));
 
 // Explicitly handle pre-flight requests
-app.options(/(.*)/, cors());
+app.options(/(.*)/, cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

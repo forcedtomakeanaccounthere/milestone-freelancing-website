@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { buildApiUrl } from '../../utils/apiBase';
 
 import Footer from '../../components/Home/Footer';
 import SolrSearchBar from '../../components/search/SolrSearchBar';
@@ -9,7 +10,6 @@ const PublicJobListing = () => {
   const auth = useAuth();
   const user = auth?.user;
   const getDashboardRoute = auth?.getDashboardRoute;
-  const apiBaseUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:9000';
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   
@@ -59,7 +59,7 @@ const PublicJobListing = () => {
   const loadJobs = async (page = 1) => {
     try {
       setLoading(true);
-      const response = await fetch(`${apiBaseUrl}/api/jobs/api?page=${page}&limit=${pageSize}`, {
+      const response = await fetch(buildApiUrl(`/api/jobs/api?page=${page}&limit=${pageSize}`), {
         credentials: 'include',
       });
       const data = await response.json();

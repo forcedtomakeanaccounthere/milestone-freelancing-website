@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { buildApiUrl } from '../utils/apiBase';
 import BlogSection from './Home/BlogSection';
 
 const Home = () => {
@@ -143,7 +144,7 @@ const Home = () => {
 
   const loadJobs = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:9000'}/api/jobs/api`, {
+      const response = await fetch(buildApiUrl('/api/jobs/api'), {
         credentials: 'include',
       });
       const data = await response.json();

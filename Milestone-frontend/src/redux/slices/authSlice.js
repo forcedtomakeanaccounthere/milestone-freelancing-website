@@ -1,14 +1,12 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
-
-const API_BASE_URL =
-  import.meta.env.VITE_BACKEND_URL || "http://localhost:9000";
+import { buildApiUrl } from "../../utils/apiBase";
 
 // Thunk to fetch current authenticated user
 export const fetchCurrentUser = createAsyncThunk(
   "auth/fetchCurrentUser",
   async (_, { rejectWithValue }) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+      const response = await fetch(buildApiUrl("/api/auth/me"), {
         method: "GET",
         credentials: "include",
         headers: {
@@ -33,7 +31,7 @@ export const loginUser = createAsyncThunk(
   "auth/loginUser",
   async (credentials, { rejectWithValue, dispatch }) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      const response = await fetch(buildApiUrl("/api/auth/login"), {
         method: "POST",
         credentials: "include",
         headers: {
@@ -70,7 +68,7 @@ export const logoutUser = createAsyncThunk(
   "auth/logoutUser",
   async (_, { rejectWithValue }) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/logout`, {
+      const response = await fetch(buildApiUrl("/api/auth/logout"), {
         method: "POST",
         credentials: "include",
         headers: {
