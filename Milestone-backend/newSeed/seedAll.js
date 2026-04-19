@@ -53,6 +53,7 @@ const Notification = require("../models/Notification");
 const Conversation = require("../models/conversation");
 const Message = require("../models/message");
 const RatingAudit = require("../models/RatingAudit");
+const Payment = require("../models/Payment");
 
 // ----------------------------------------------------------
 // Helpers
@@ -67,6 +68,171 @@ const daysFromNow = (n) => {
   d.setDate(d.getDate() + n);
   return d;
 };
+
+const addMonthsFromNow = (months) => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d;
+};
+
+const DEFAULT_DEMO_PASSWORD_HASH =
+  "$2b$10$qtD6NlfM9LHnLQlx/pE8zOTd1JazP5OEVwS2K7/4v30jHRgwLLe02";
+
+const SOCIAL_DEFAULT = {
+  linkedin: "",
+  twitter: "",
+  facebook: "",
+  instagram: "",
+};
+
+async function ensureRoleAccount({
+  email,
+  name,
+  role,
+  passwordHash = DEFAULT_DEMO_PASSWORD_HASH,
+  location = "",
+  phone = "",
+  aboutMe = "",
+  picture = "",
+  socialMedia = {},
+  rating = 4.5,
+  subscription = "Basic",
+  subscriptionDuration = null,
+  subscriptionExpiryDate = null,
+  isApproved = true,
+  isRejected = false,
+  roleData = {},
+}) {
+  let user = await User.findOne({ email });
+
+  if (!user) {
+    user = new User({
+      userId: uuidv4(),
+      name,
+      email,
+      password: passwordHash,
+      phone,
+      isVerified: true,
+      otpVerified: true,
+      role,
+      roleId: uuidv4(),
+      location,
+      socialMedia: { ...SOCIAL_DEFAULT, ...socialMedia },
+      aboutMe,
+      subscription,
+      subscriptionDuration,
+      subscriptionExpiryDate,
+      isApproved,
+      isRejected,
+      rating,
+    });
+    if (picture) user.picture = picture;
+  } else {
+    user.name = name || user.name;
+    user.role = role;
+    user.roleId = user.roleId || uuidv4();
+    user.isVerified = true;
+    user.otpVerified = true;
+    user.location = location || user.location;
+    user.phone = phone || user.phone;
+    user.aboutMe = aboutMe || user.aboutMe;
+    user.socialMedia = { ...SOCIAL_DEFAULT, ...(user.socialMedia || {}), ...socialMedia };
+    user.subscription = subscription || user.subscription || "Basic";
+    user.subscriptionDuration = subscriptionDuration;
+    user.subscriptionExpiryDate = subscriptionExpiryDate;
+    user.isApproved = isApproved;
+    user.isRejected = isRejected;
+    user.rating = typeof rating === "number" ? rating : user.rating;
+    if (picture) user.picture = picture;
+    if (!user.password) user.password = passwordHash;
+  }
+
+  await user.save();
+
+  let roleDoc;
+  if (role === "Employer") {
+    roleDoc = await Employer.findOneAndUpdate(
+      { userId: user.userId },
+      {
+        $setOnInsert: { employerId: user.roleId, userId: user.userId },
+        $set: {
+          companyName: roleData.companyName || "",
+          websiteLink: roleData.websiteLink || "",
+          companyDetails: {
+            companyName: roleData.companyDetails?.companyName || roleData.companyName || "",
+            companyPAN: roleData.companyDetails?.companyPAN || "",
+            billingAddress: roleData.companyDetails?.billingAddress || "",
+            accountsPayableEmail: roleData.companyDetails?.accountsPayableEmail || "",
+            taxIdentificationNumber:
+              roleData.companyDetails?.taxIdentificationNumber || "",
+            proofOfAddressUrl: roleData.companyDetails?.proofOfAddressUrl || "",
+            officialBusinessEmail:
+              roleData.companyDetails?.officialBusinessEmail || email,
+            companyLogoUrl: roleData.companyDetails?.companyLogoUrl || "",
+            isSubmitted: Boolean(roleData.companyDetails?.isSubmitted),
+            submittedAt: roleData.companyDetails?.submittedAt || null,
+          },
+        },
+      },
+      { new: true, upsert: true },
+    );
+
+    if (user.roleId !== roleDoc.employerId) {
+      user.roleId = roleDoc.employerId;
+      await user.save();
+    }
+  }
+
+  if (role === "Freelancer") {
+    roleDoc = await Freelancer.findOneAndUpdate(
+      { userId: user.userId },
+      {
+        $setOnInsert: { freelancerId: user.roleId, userId: user.userId },
+        $set: {
+          resume: roleData.resume || "",
+          skills: Array.isArray(roleData.skills) ? roleData.skills : [],
+          experience: Array.isArray(roleData.experience) ? roleData.experience : [],
+          education: Array.isArray(roleData.education) ? roleData.education : [],
+          portfolio: Array.isArray(roleData.portfolio) ? roleData.portfolio : [],
+        },
+      },
+      { new: true, upsert: true },
+    );
+
+    if (user.roleId !== roleDoc.freelancerId) {
+      user.roleId = roleDoc.freelancerId;
+      await user.save();
+    }
+  }
+
+  if (role === "Moderator") {
+    roleDoc = await Moderator.findOneAndUpdate(
+      { userId: user.userId },
+      { $setOnInsert: { moderatorId: user.roleId, userId: user.userId } },
+      { new: true, upsert: true },
+    );
+
+    if (user.roleId !== roleDoc.moderatorId) {
+      user.roleId = roleDoc.moderatorId;
+      await user.save();
+    }
+  }
+
+  if (role === "Admin") {
+    roleDoc = await Admin.findOneAndUpdate(
+      { userId: user.userId },
+      { $setOnInsert: { adminId: user.roleId, userId: user.userId } },
+      { new: true, upsert: true },
+    );
+
+    if (user.roleId !== roleDoc.adminId) {
+      user.roleId = roleDoc.adminId;
+      await user.save();
+    }
+  }
+
+  return { user, roleDoc };
+}
 
 // ----------------------------------------------------------
 // MAIN
@@ -1777,15 +1943,1506 @@ async function main() {
   await RatingAudit.insertMany(audits);
   console.log(`   [OK] ${audits.length} rating audit entries created`);
 
-  // -- Update employer's jobsPosted array ------------------
-  await Employer.findOneAndUpdate(
-    { employerId: empId },
+  // -- 14. Advanced multi-role dataset ---------------------
+  console.log("\n[14/14] Expanding advanced multi-role dataset...");
+
+  const advancedMetrics = {
+    moderatorsAdded: 0,
+    employersAdded: 0,
+    freelancersAdded: 0,
+    jobsAdded: 0,
+    applicationsAdded: 0,
+    complaintsAdded: 0,
+    feedbackAdded: 0,
+    questionsAdded: 0,
+    notificationsAdded: 0,
+    conversationsAdded: 0,
+    messagesAdded: 0,
+    paymentsAdded: 0,
+    quizzesAdded: 0,
+    badgesAdded: 0,
+    attemptsAdded: 0,
+    auditsAdded: 0,
+  };
+
+  const commonPasswordHash = employerUser.password || DEFAULT_DEMO_PASSWORD_HASH;
+
+  const initialRoleCounts = {
+    moderators: await User.countDocuments({ role: "Moderator" }),
+    employers: await User.countDocuments({ role: "Employer" }),
+    freelancers: await User.countDocuments({ role: "Freelancer" }),
+  };
+
+  const targetRoleCounts = {
+    moderators: initialRoleCounts.moderators + 2,
+    employers: initialRoleCounts.employers + 4,
+    freelancers: initialRoleCounts.freelancers + 6,
+  };
+
+  const moderatorTemplates = [
     {
-      $set: {
-        jobsPosted: Object.values(jobIds),
-      },
-    }
+      name: "Moderator One",
+      location: "Pune, Maharashtra",
+      phone: "+91-9810010011",
+      aboutMe: "Quality-focused moderator handling dispute resolution, safety checks, and policy enforcement for marketplace trust.",
+    },
+    {
+      name: "Moderator Two",
+      location: "Chennai, Tamil Nadu",
+      phone: "+91-9810010012",
+      aboutMe: "Escalation moderator specializing in payment disputes, timeline conflicts, and employer-freelancer mediation.",
+    },
+    {
+      name: "Moderator Three",
+      location: "Kolkata, West Bengal",
+      phone: "+91-9810010013",
+      aboutMe: "Community and compliance moderator with focus on onboarding quality and rapid complaint turnaround.",
+    },
+  ];
+
+  const existingModeratorUsers = await User.find({ role: "Moderator" }).select("email");
+  const usedModeratorEmails = new Set(
+    existingModeratorUsers.map((u) => (u.email || "").toLowerCase()),
   );
+  const moderatorsNeeded = Math.max(
+    0,
+    targetRoleCounts.moderators - existingModeratorUsers.length,
+  );
+  let moderatorIndex = 1;
+  while (advancedMetrics.moderatorsAdded < moderatorsNeeded) {
+    const email = `m${moderatorIndex}@gmail.com`;
+    moderatorIndex += 1;
+    if (usedModeratorEmails.has(email)) continue;
+
+    const t = moderatorTemplates[advancedMetrics.moderatorsAdded % moderatorTemplates.length];
+    await ensureRoleAccount({
+      email,
+      name: t.name,
+      role: "Moderator",
+      passwordHash: commonPasswordHash,
+      location: t.location,
+      phone: t.phone,
+      aboutMe: t.aboutMe,
+      rating: 4.6,
+    });
+
+    usedModeratorEmails.add(email);
+    advancedMetrics.moderatorsAdded += 1;
+  }
+
+  const employerTemplates = [
+    {
+      companyName: "CloudForge Labs Pvt. Ltd.",
+      websiteLink: "https://cloudforge.in",
+      city: "Bengaluru, Karnataka",
+      businessEmail: "finance@cloudforge.in",
+    },
+    {
+      companyName: "ScaleByte Systems",
+      websiteLink: "https://scalebyte.in",
+      city: "Hyderabad, Telangana",
+      businessEmail: "accounts@scalebyte.in",
+    },
+    {
+      companyName: "NextOrbit Tech Solutions",
+      websiteLink: "https://nextorbit.in",
+      city: "Pune, Maharashtra",
+      businessEmail: "billing@nextorbit.in",
+    },
+    {
+      companyName: "DataSpring Analytics",
+      websiteLink: "https://dataspring.in",
+      city: "Noida, Uttar Pradesh",
+      businessEmail: "payments@dataspring.in",
+    },
+    {
+      companyName: "InfraPulse Networks",
+      websiteLink: "https://infrapulse.in",
+      city: "Gurugram, Haryana",
+      businessEmail: "ap@infrapulse.in",
+    },
+  ];
+
+  const existingEmployerUsers = await User.find({ role: "Employer" }).select("email");
+  const usedEmployerEmails = new Set(
+    existingEmployerUsers.map((u) => (u.email || "").toLowerCase()),
+  );
+  const employersNeeded = Math.max(
+    0,
+    targetRoleCounts.employers - existingEmployerUsers.length,
+  );
+  let employerIndex = 1;
+  const newlyAddedEmployerUserIds = [];
+  while (advancedMetrics.employersAdded < employersNeeded) {
+    const email = `e${employerIndex}@gmail.com`;
+    employerIndex += 1;
+    if (usedEmployerEmails.has(email)) continue;
+
+    const t = employerTemplates[advancedMetrics.employersAdded % employerTemplates.length];
+    const shouldWaitApproval = advancedMetrics.employersAdded >= Math.max(0, employersNeeded - 2);
+    const subscriptionType = advancedMetrics.employersAdded % 3;
+    const subscriptionDuration =
+      subscriptionType === 0 ? 1 : subscriptionType === 1 ? 12 : null;
+    const subscriptionPlan = subscriptionDuration ? "Premium" : "Basic";
+
+    const { user } = await ensureRoleAccount({
+      email,
+      name: `${t.companyName.split(" ")[0]} Hiring Team`,
+      role: "Employer",
+      passwordHash: commonPasswordHash,
+      location: t.city,
+      phone: `+91-98000${String(2200 + advancedMetrics.employersAdded)}`,
+      aboutMe: `${t.companyName} builds high-scale digital products and hires specialists for platform, AI, cloud, and data initiatives across India.`,
+      socialMedia: {
+        linkedin: `https://linkedin.com/company/${t.companyName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+      },
+      rating: 4.3 + (advancedMetrics.employersAdded % 3) * 0.2,
+      subscription: subscriptionPlan,
+      subscriptionDuration,
+      subscriptionExpiryDate: subscriptionDuration ? addMonthsFromNow(subscriptionDuration) : null,
+      isApproved: !shouldWaitApproval,
+      isRejected: false,
+      roleData: {
+        companyName: t.companyName,
+        websiteLink: t.websiteLink,
+        companyDetails: {
+          companyName: t.companyName,
+          companyPAN: `AAAC${9000 + advancedMetrics.employersAdded}F`,
+          billingAddress: `${t.city}, India`,
+          accountsPayableEmail: t.businessEmail,
+          taxIdentificationNumber: `GSTIN-${3000 + advancedMetrics.employersAdded}`,
+          proofOfAddressUrl: "https://res.cloudinary.com/duhnysmeh/image/upload/v1770684081/company-profiles/xpghattdc9qsnfqonzh9.png",
+          officialBusinessEmail: t.businessEmail,
+          companyLogoUrl: "https://res.cloudinary.com/duhnysmeh/image/upload/v1770684081/company-profiles/xpghattdc9qsnfqonzh9.png",
+          isSubmitted: true,
+          submittedAt: daysAgo(2 + advancedMetrics.employersAdded),
+        },
+      },
+    });
+
+    newlyAddedEmployerUserIds.push(user.userId);
+    usedEmployerEmails.add(email);
+    advancedMetrics.employersAdded += 1;
+  }
+
+  const freelancerSkillSets = [
+    ["React", "TypeScript", "Next.js", "Tailwind", "Redux"],
+    ["Node.js", "Express.js", "MongoDB", "Redis", "Docker"],
+    ["Python", "FastAPI", "PostgreSQL", "Pandas", "Airflow"],
+    ["Java", "Spring Boot", "Kafka", "MySQL", "Microservices"],
+    ["DevOps", "AWS", "Terraform", "Kubernetes", "Prometheus"],
+    ["Flutter", "Dart", "Firebase", "REST APIs", "CI/CD"],
+  ];
+
+  const existingFreelancerUsers = await User.find({ role: "Freelancer" }).select("email");
+  const usedFreelancerEmails = new Set(
+    existingFreelancerUsers.map((u) => (u.email || "").toLowerCase()),
+  );
+  const freelancersNeeded = Math.max(
+    0,
+    targetRoleCounts.freelancers - existingFreelancerUsers.length,
+  );
+  let freelancerIndex = 1;
+  while (advancedMetrics.freelancersAdded < freelancersNeeded) {
+    const email = `f${freelancerIndex}@gmail.com`;
+    freelancerIndex += 1;
+    if (usedFreelancerEmails.has(email)) continue;
+
+    const skills = freelancerSkillSets[advancedMetrics.freelancersAdded % freelancerSkillSets.length];
+    const premiumCycle = advancedMetrics.freelancersAdded % 4;
+    const subscriptionDuration = premiumCycle === 0 ? 12 : premiumCycle === 1 ? 1 : null;
+    const subscriptionPlan = subscriptionDuration ? "Premium" : "Basic";
+
+    await ensureRoleAccount({
+      email,
+      name: `Freelancer ${advancedMetrics.freelancersAdded + 1}`,
+      role: "Freelancer",
+      passwordHash: commonPasswordHash,
+      location: [
+        "Bengaluru, Karnataka",
+        "Mumbai, Maharashtra",
+        "Hyderabad, Telangana",
+        "Pune, Maharashtra",
+        "Chandigarh, Punjab",
+        "Kochi, Kerala",
+      ][advancedMetrics.freelancersAdded % 6],
+      phone: `+91-97000${String(3100 + advancedMetrics.freelancersAdded)}`,
+      aboutMe: `Technical freelancer focused on ${skills.slice(0, 3).join(", ")} with strong delivery experience across product, platform, and automation projects.`,
+      socialMedia: {
+        linkedin: `https://linkedin.com/in/freelancer-${advancedMetrics.freelancersAdded + 1}`,
+      },
+      rating: 4 + (advancedMetrics.freelancersAdded % 4) * 0.2,
+      subscription: subscriptionPlan,
+      subscriptionDuration,
+      subscriptionExpiryDate: subscriptionDuration ? addMonthsFromNow(subscriptionDuration) : null,
+      roleData: {
+        resume: "https://example.com/resume.pdf",
+        skills,
+        experience: [
+          {
+            title: "Senior Freelance Engineer",
+            date: "2022 - Present",
+            description: `Led delivery of ${skills[0]} and ${skills[1]} projects for high-growth startups with strong quality and timeline adherence.`,
+          },
+        ],
+        education: [
+          {
+            degree: "B.Tech Computer Science",
+            institution: "National Institute of Technology",
+            date: "2016 - 2020",
+          },
+        ],
+        portfolio: [
+          {
+            title: `${skills[0]} Production Project`,
+            description: "Production-grade implementation for a marketplace use case.",
+            image:
+              "https://images.unsplash.com/photo-1518770660439-4636190af475?w=400",
+            link: "https://github.com/example/project",
+          },
+        ],
+      },
+    });
+
+    usedFreelancerEmails.add(email);
+    advancedMetrics.freelancersAdded += 1;
+  }
+
+  // Ensure exactly two newly-added employers are pending moderator approval.
+  if (newlyAddedEmployerUserIds.length >= 2) {
+    const pendingUserIds = newlyAddedEmployerUserIds.slice(-2);
+    await User.updateMany(
+      { userId: { $in: pendingUserIds } },
+      { $set: { isApproved: false, isRejected: false } },
+    );
+  }
+
+  const [
+    allRoleUsers,
+    allEmployers,
+    allFreelancers,
+    allModerators,
+    allAdmins,
+  ] = await Promise.all([
+    User.find({ role: { $in: ["Employer", "Freelancer", "Moderator", "Admin"] } }),
+    Employer.find({}),
+    Freelancer.find({}),
+    Moderator.find({}),
+    User.find({ role: "Admin" }),
+  ]);
+
+  const userByUserId = new Map(allRoleUsers.map((u) => [u.userId, u]));
+  const employerByEmployerId = new Map(allEmployers.map((e) => [e.employerId, e]));
+  const freelancerByFreelancerId = new Map(allFreelancers.map((f) => [f.freelancerId, f]));
+  const pick = (arr, i) => arr[i % arr.length];
+
+  const buildMilestones = (variant, budget) => {
+    if (variant === "working") {
+      return [
+        {
+          milestoneId: uuidv4(),
+          description: "Architecture and kickoff deliverables",
+          deadline: "10 days",
+          payment: String(Math.round(budget * 0.3)),
+          status: "paid",
+          requested: false,
+          completionPercentage: 100,
+          subTasks: [],
+        },
+        {
+          milestoneId: uuidv4(),
+          description: "Core module implementation",
+          deadline: "20 days",
+          payment: String(Math.round(budget * 0.4)),
+          status: "in-progress",
+          requested: true,
+          completionPercentage: 55,
+          subTasks: [],
+        },
+        {
+          milestoneId: uuidv4(),
+          description: "QA hardening and handover",
+          deadline: "10 days",
+          payment: String(Math.round(budget * 0.3)),
+          status: "not-paid",
+          requested: false,
+          completionPercentage: 0,
+          subTasks: [],
+        },
+      ];
+    }
+
+    if (variant === "finished") {
+      return [
+        {
+          milestoneId: uuidv4(),
+          description: "Planning and design",
+          deadline: "7 days",
+          payment: String(Math.round(budget * 0.25)),
+          status: "paid",
+          requested: false,
+          completionPercentage: 100,
+          subTasks: [],
+        },
+        {
+          milestoneId: uuidv4(),
+          description: "Implementation",
+          deadline: "14 days",
+          payment: String(Math.round(budget * 0.5)),
+          status: "paid",
+          requested: false,
+          completionPercentage: 100,
+          subTasks: [],
+        },
+        {
+          milestoneId: uuidv4(),
+          description: "Delivery and support",
+          deadline: "7 days",
+          payment: String(Math.round(budget * 0.25)),
+          status: "paid",
+          requested: false,
+          completionPercentage: 100,
+          subTasks: [],
+        },
+      ];
+    }
+
+    if (variant === "left") {
+      return [
+        {
+          milestoneId: uuidv4(),
+          description: "Discovery and audit",
+          deadline: "7 days",
+          payment: String(Math.round(budget * 0.35)),
+          status: "paid",
+          requested: false,
+          completionPercentage: 100,
+          subTasks: [],
+        },
+        {
+          milestoneId: uuidv4(),
+          description: "Migration sprint",
+          deadline: "14 days",
+          payment: String(Math.round(budget * 0.65)),
+          status: "not-paid",
+          requested: true,
+          completionPercentage: 35,
+          subTasks: [],
+        },
+      ];
+    }
+
+    return [];
+  };
+
+  const advancedJobBlueprints = [
+    {
+      title: "Kubernetes Observability Platform",
+      employerIdx: 1,
+      budget: 180000,
+      location: "Remote",
+      jobType: "contract",
+      experienceLevel: "Expert",
+      remote: true,
+      postedAgo: 2,
+      deadlineInDays: 24,
+      status: "open",
+      isBoosted: true,
+      skills: ["Kubernetes", "Prometheus", "Grafana", "Go", "Terraform"],
+      milestoneVariant: "open",
+    },
+    {
+      title: "Multi-tenant SaaS Billing Backend",
+      employerIdx: 2,
+      budget: 145000,
+      location: "Hyderabad, Telangana",
+      jobType: "contract",
+      experienceLevel: "Senior",
+      remote: true,
+      postedAgo: 4,
+      deadlineInDays: 21,
+      status: "open",
+      isBoosted: false,
+      skills: ["Node.js", "PostgreSQL", "Redis", "Razorpay", "Queues"],
+      milestoneVariant: "open",
+    },
+    {
+      title: "Realtime Fraud Detection Pipeline",
+      employerIdx: 3,
+      budget: 210000,
+      location: "Bengaluru, Karnataka",
+      jobType: "full-time",
+      experienceLevel: "Expert",
+      remote: false,
+      postedAgo: 3,
+      deadlineInDays: 30,
+      status: "in-progress",
+      isBoosted: true,
+      skills: ["Python", "Kafka", "Spark", "Feature Store", "ML Ops"],
+      milestoneVariant: "working",
+      assignedFreelancerIdx: 2,
+      assignedStatus: "working",
+    },
+    {
+      title: "Legacy Monolith to Microservices Migration",
+      employerIdx: 4,
+      budget: 165000,
+      location: "Chennai, Tamil Nadu",
+      jobType: "contract",
+      experienceLevel: "Senior",
+      remote: true,
+      postedAgo: 35,
+      deadlineInDays: -8,
+      status: "closed",
+      isBoosted: false,
+      skills: ["Java", "Spring Boot", "Docker", "MySQL", "Refactoring"],
+      milestoneVariant: "left",
+      assignedFreelancerIdx: 4,
+      assignedStatus: "left",
+    },
+    {
+      title: "Serverless ETL for Analytics Lakehouse",
+      employerIdx: 0,
+      budget: 98000,
+      location: "Pune, Maharashtra",
+      jobType: "freelance",
+      experienceLevel: "Mid",
+      remote: true,
+      postedAgo: 28,
+      deadlineInDays: -5,
+      status: "completed",
+      isBoosted: false,
+      skills: ["Python", "AWS Lambda", "Glue", "Athena", "Data Modeling"],
+      milestoneVariant: "finished",
+      assignedFreelancerIdx: 5,
+      assignedStatus: "finished",
+    },
+    {
+      title: "Edge-ready PWA for Logistics Tracking",
+      employerIdx: 5,
+      budget: 112000,
+      location: "Remote",
+      jobType: "freelance",
+      experienceLevel: "Mid",
+      remote: true,
+      postedAgo: 7,
+      deadlineInDays: 16,
+      status: "open",
+      isBoosted: false,
+      skills: ["React", "Service Worker", "Mapbox", "WebSockets", "IndexedDB"],
+      milestoneVariant: "open",
+    },
+    {
+      title: "AI Code Review Assistant Integration",
+      employerIdx: 2,
+      budget: 132000,
+      location: "Noida, Uttar Pradesh",
+      jobType: "part-time",
+      experienceLevel: "Senior",
+      remote: true,
+      postedAgo: 9,
+      deadlineInDays: 18,
+      status: "open",
+      isBoosted: true,
+      skills: ["Python", "LLM APIs", "GitHub App", "Vector DB", "Prompting"],
+      milestoneVariant: "open",
+    },
+    {
+      title: "Secure API Gateway and Rate-limiter Stack",
+      employerIdx: 3,
+      budget: 87000,
+      location: "Gurugram, Haryana",
+      jobType: "contract",
+      experienceLevel: "Mid",
+      remote: false,
+      postedAgo: 14,
+      deadlineInDays: 14,
+      status: "in-progress",
+      isBoosted: false,
+      skills: ["NGINX", "Lua", "JWT", "Redis", "Observability"],
+      milestoneVariant: "working",
+      assignedFreelancerIdx: 1,
+      assignedStatus: "working",
+    },
+  ];
+
+  const advancedJobs = advancedJobBlueprints.map((bp, idx) => {
+    const employerDoc = pick(allEmployers, bp.employerIdx);
+    const assignedFreelancer =
+      typeof bp.assignedFreelancerIdx === "number"
+        ? pick(allFreelancers, bp.assignedFreelancerIdx)
+        : null;
+
+    const platformFeeRate = bp.isBoosted ? 4 : 2;
+    const applicationCap = idx % 3 === 0 ? 20 : null;
+    const applicationCapFeeRate = applicationCap ? 1 : 2;
+
+    return {
+      jobId: uuidv4(),
+      employerId: employerDoc.employerId,
+      title: bp.title,
+      budget: bp.budget,
+      location: bp.location,
+      jobType: bp.jobType,
+      experienceLevel: bp.experienceLevel,
+      remote: bp.remote,
+      postedDate: daysAgo(bp.postedAgo),
+      applicationDeadline: daysFromNow(bp.deadlineInDays),
+      description: {
+        text: `${bp.title} for a high-growth product organization requiring robust engineering execution and clean architecture decisions.`,
+        responsibilities: [
+          "Design technical architecture and implementation plan",
+          "Develop and test production-grade modules",
+          "Collaborate with stakeholder team in weekly sprint reviews",
+          "Ship monitored, documented, and maintainable services",
+        ],
+        requirements: [
+          "Hands-on experience with modern backend and cloud tooling",
+          "Strong communication and delivery discipline",
+          "Ability to own milestones end-to-end",
+        ],
+        skills: bp.skills,
+      },
+      milestones: buildMilestones(bp.milestoneVariant, bp.budget),
+      status: bp.status,
+      applicants: 0,
+      platformFeeRate,
+      applicationCap,
+      applicationCapFeeRate,
+      platformFeeAmount: Math.round(
+        ((platformFeeRate + applicationCapFeeRate) / 100) * bp.budget,
+      ),
+      isBoosted: bp.isBoosted,
+      boostExpiresAt: bp.isBoosted ? daysFromNow(12 + idx) : null,
+      assignedFreelancer: assignedFreelancer
+        ? {
+            freelancerId: assignedFreelancer.freelancerId,
+            startDate: daysAgo(bp.postedAgo - 2),
+            endDate:
+              bp.assignedStatus === "finished" || bp.assignedStatus === "left"
+                ? daysAgo(Math.max(1, bp.postedAgo - 8))
+                : null,
+            status: bp.assignedStatus,
+            employerRating: bp.assignedStatus === "finished" ? 4 + (idx % 2) : bp.assignedStatus === "left" ? 2 : null,
+            employerReview:
+              bp.assignedStatus === "finished"
+                ? "Delivered high-quality work with proactive updates and excellent ownership."
+                : bp.assignedStatus === "left"
+                  ? "Freelancer exited before completion after initial sprint."
+                  : "",
+            rated: bp.assignedStatus === "finished" || bp.assignedStatus === "left",
+          }
+        : {
+            freelancerId: null,
+            startDate: null,
+            endDate: null,
+            status: null,
+            employerRating: null,
+            employerReview: "",
+            rated: false,
+          },
+    };
+  });
+
+  await JobListing.insertMany(advancedJobs);
+  advancedMetrics.jobsAdded = advancedJobs.length;
+
+  const freelancerUserByRoleId = new Map(
+    allFreelancers.map((f) => [f.freelancerId, userByUserId.get(f.userId)]),
+  );
+
+  const coverMessagePool = [
+    "I have delivered similar projects with strong architecture, clean code quality, and transparent sprint communication. I can begin immediately.",
+    "My experience across distributed systems and product delivery makes me a strong fit. I can share relevant case studies from recent engagements.",
+    "I focus on measurable outcomes and production reliability. Happy to align on milestones and reporting cadence from day one.",
+    "I have worked with Indian and global teams on similar stacks and can own this end-to-end with quality documentation.",
+    "I can take ownership of implementation, performance tuning, and deployment pipeline setup while keeping collaboration smooth.",
+  ];
+
+  const advancedApplications = [];
+  advancedJobs.forEach((job, idx) => {
+    const selectedFreelancers = [];
+    let pointer = idx;
+    while (selectedFreelancers.length < 3) {
+      const fr = pick(allFreelancers, pointer).freelancerId;
+      if (!selectedFreelancers.includes(fr)) selectedFreelancers.push(fr);
+      pointer += 2;
+    }
+
+    if (job.assignedFreelancer?.freelancerId) {
+      selectedFreelancers[0] = job.assignedFreelancer.freelancerId;
+    }
+
+    let statusPattern = ["Pending", "Rejected", "Pending"];
+    if (job.status === "in-progress") statusPattern = ["Accepted", "Pending", "Rejected"];
+    if (job.status === "completed" || job.status === "closed") {
+      statusPattern = ["Accepted", "Rejected", "Pending"];
+    }
+
+    selectedFreelancers.forEach((freelancerId, appIdx) => {
+      const freelancerUserDoc = freelancerUserByRoleId.get(freelancerId);
+      const status = statusPattern[appIdx] || "Pending";
+      advancedApplications.push({
+        applicationId: uuidv4(),
+        freelancerId,
+        jobId: job.jobId,
+        coverMessage: `${coverMessagePool[(idx + appIdx) % coverMessagePool.length]} (Application ${idx + 1}-${appIdx + 1})`,
+        resumeLink: "https://example.com/resume.pdf",
+        appliedDate: daysAgo(Math.max(1, 12 - idx - appIdx)),
+        status,
+        contactEmail: freelancerUserDoc?.email || "freelancer@example.com",
+        skillRating: String(4 + ((idx + appIdx) % 2) * 0.5),
+        availability: ["immediate", "notice", "other"][(idx + appIdx) % 3],
+      });
+    });
+  });
+
+  await JobApplication.insertMany(advancedApplications);
+  advancedMetrics.applicationsAdded = advancedApplications.length;
+
+  const advancedApplicantCounts = advancedApplications.reduce((acc, app) => {
+    acc[app.jobId] = (acc[app.jobId] || 0) + 1;
+    return acc;
+  }, {});
+
+  await JobListing.bulkWrite(
+    Object.entries(advancedApplicantCounts).map(([jobId, count]) => ({
+      updateOne: {
+        filter: { jobId },
+        update: { $set: { applicants: count } },
+      },
+    })),
+  );
+
+  const employerNameById = (employerId) => {
+    const employerDoc = employerByEmployerId.get(employerId);
+    const employerUserDoc = employerDoc ? userByUserId.get(employerDoc.userId) : null;
+    return employerUserDoc?.name || "Employer";
+  };
+
+  const freelancerNameById = (freelancerId) => {
+    const freelancerDoc = freelancerByFreelancerId.get(freelancerId);
+    const freelancerUserDoc = freelancerDoc ? userByUserId.get(freelancerDoc.userId) : null;
+    return freelancerUserDoc?.name || "Freelancer";
+  };
+
+  const complaintSourceJobs = advancedJobs.filter(
+    (j) => j.assignedFreelancer?.freelancerId,
+  );
+  const advancedComplaints = complaintSourceJobs.slice(0, 3).map((job, idx) => ({
+    complaintId: uuidv4(),
+    complainantType: idx % 2 === 0 ? "Freelancer" : "Employer",
+    complainantId:
+      idx % 2 === 0 ? job.assignedFreelancer.freelancerId : job.employerId,
+    complainantName:
+      idx % 2 === 0
+        ? freelancerNameById(job.assignedFreelancer.freelancerId)
+        : employerNameById(job.employerId),
+    freelancerId: job.assignedFreelancer.freelancerId,
+    freelancerName: freelancerNameById(job.assignedFreelancer.freelancerId),
+    jobId: job.jobId,
+    jobTitle: job.title,
+    employerId: job.employerId,
+    employerName: employerNameById(job.employerId),
+    complaintType: ["Payment Issue", "Communication Issue", "Contract Violation"][idx],
+    priority: ["High", "Medium", "Low"][idx],
+    subject: [
+      "Payment tranche not released after milestone approval",
+      "Missed stakeholder sync updates during sprint",
+      "Deviation from approved implementation plan",
+    ][idx],
+    description: [
+      "Milestone deliverables were approved and demoed successfully, but payment release is pending beyond the agreed timeline despite multiple follow-ups in project chat.",
+      "Project progress is good but communication has become irregular in the last two weeks, affecting planning confidence for the downstream team.",
+      "There was a deviation from the originally approved architecture and timeline expectations; both parties requested moderator intervention for alignment.",
+    ][idx],
+    status: ["Pending", "Under Review", "Resolved"][idx],
+    moderatorNotes:
+      idx === 2
+        ? "Resolution reached with revised milestone plan and documented communication cadence."
+        : "",
+    resolvedAt: idx === 2 ? daysAgo(2) : null,
+    createdAt: daysAgo(6 + idx),
+    updatedAt: daysAgo(Math.max(1, idx + 1)),
+  }));
+
+  await Complaint.insertMany(advancedComplaints);
+  advancedMetrics.complaintsAdded = advancedComplaints.length;
+
+  const completedLikeJobs = advancedJobs.filter(
+    (j) => j.assignedFreelancer?.freelancerId,
+  );
+  const advancedFeedbacks = [];
+  completedLikeJobs.slice(0, 3).forEach((job, idx) => {
+    const employerDoc = employerByEmployerId.get(job.employerId);
+    const freelancerDoc = freelancerByFreelancerId.get(
+      job.assignedFreelancer.freelancerId,
+    );
+    if (!employerDoc || !freelancerDoc) return;
+
+    advancedFeedbacks.push({
+      jobId: job.jobId,
+      fromUserId: employerDoc.userId,
+      toUserId: freelancerDoc.userId,
+      toRole: "Freelancer",
+      rating: [5, 4, 3][idx],
+      comment: [
+        "Strong ownership and clean technical delivery. Excellent coordination with our backend and QA teams.",
+        "Good delivery pace and quality, with scope handled well after priority changes.",
+        "Delivery started well but slipped during final milestones. Overall acceptable with room for consistency.",
+      ][idx],
+      tags: ["Technical Depth", "Communication", "Execution"],
+      anonymous: false,
+    });
+
+    advancedFeedbacks.push({
+      jobId: job.jobId,
+      fromUserId: freelancerDoc.userId,
+      toUserId: employerDoc.userId,
+      toRole: "Employer",
+      rating: [4, 5, 3][idx],
+      comment: [
+        "Project goals and product context were clear. Collaboration was smooth and decision turnaround was fast.",
+        "Excellent stakeholder support and timely approvals throughout milestones.",
+        "Reasonable engagement, but approvals and dependency clarifications were delayed in final sprint.",
+      ][idx],
+      tags: ["Clarity", "Responsiveness", "Process"],
+      anonymous: false,
+    });
+  });
+
+  if (advancedFeedbacks.length > 0) {
+    await Feedback.insertMany(advancedFeedbacks);
+  }
+  advancedMetrics.feedbackAdded = advancedFeedbacks.length;
+
+  const openAdvancedJobs = advancedJobs.filter((j) => j.status === "open");
+  const advancedQuestions = openAdvancedJobs.slice(0, 4).map((job, idx) => {
+    const askerFreelancer = pick(allFreelancers, idx + 1);
+    const askerUser = userByUserId.get(askerFreelancer.userId);
+    const employerDoc = employerByEmployerId.get(job.employerId);
+    const employerUserDoc = employerDoc ? userByUserId.get(employerDoc.userId) : null;
+
+    const answers =
+      idx % 2 === 0
+        ? [
+            {
+              answerId: uuidv4(),
+              answererId: job.employerId,
+              answererType: "Employer",
+              answererName: employerUserDoc?.name || "Employer",
+              answererPicture: employerUserDoc?.picture || "",
+              text: "Yes, we have a clear milestone map with weekly demos and architecture checkpoints. Shared docs and staging access are available from kickoff.",
+              createdAt: daysAgo(1),
+            },
+          ]
+        : [];
+
+    return {
+      questionId: uuidv4(),
+      jobId: job.jobId,
+      askerId: askerFreelancer.freelancerId,
+      askerType: "Freelancer",
+      askerName: askerUser?.name || "Freelancer",
+      askerPicture: askerUser?.picture || "",
+      text: [
+        "Can you clarify expected architecture ownership and whether deployment pipeline setup is part of scope?",
+        "Will there be dedicated QA support for integration testing milestones?",
+        "What is the expected overlap window with your internal engineering team for standups?",
+        "Are there data residency or compliance constraints we should account for in system design?",
+      ][idx],
+      answers,
+      createdAt: daysAgo(2 + idx),
+    };
+  });
+
+  if (advancedQuestions.length > 0) {
+    await Question.insertMany(advancedQuestions);
+  }
+  advancedMetrics.questionsAdded = advancedQuestions.length;
+
+  const advancedNotifications = [];
+  advancedQuestions.forEach((q) => {
+    const jobDoc = advancedJobs.find((job) => job.jobId === q.jobId);
+    if (!jobDoc) return;
+    const employerDoc = employerByEmployerId.get(jobDoc.employerId);
+    const askerFreelancerDoc = freelancerByFreelancerId.get(q.askerId);
+    if (!employerDoc || !askerFreelancerDoc) return;
+
+    advancedNotifications.push({
+      notificationId: uuidv4(),
+      userId: employerDoc.userId,
+      type: "question_posted",
+      title: "New Question on Job Listing",
+      message: `${q.askerName} asked a question on ${jobDoc.title}.`,
+      jobId: q.jobId,
+      questionId: q.questionId,
+      fromUserId: askerFreelancerDoc.userId,
+      fromUserName: q.askerName,
+      read: false,
+      createdAt: q.createdAt,
+    });
+
+    if (Array.isArray(q.answers) && q.answers.length > 0) {
+      const employerUserDoc = userByUserId.get(employerDoc.userId);
+      advancedNotifications.push({
+        notificationId: uuidv4(),
+        userId: askerFreelancerDoc.userId,
+        type: "question_answered",
+        title: "Question Answered",
+        message: `${employerUserDoc?.name || "Employer"} answered your question on ${jobDoc.title}.`,
+        jobId: q.jobId,
+        questionId: q.questionId,
+        fromUserId: employerDoc.userId,
+        fromUserName: employerUserDoc?.name || "Employer",
+        read: false,
+        createdAt: daysAgo(1),
+      });
+    }
+  });
+
+  if (advancedNotifications.length > 0) {
+    await Notification.insertMany(advancedNotifications);
+  }
+  advancedMetrics.notificationsAdded = advancedNotifications.length;
+
+  const adminPrimaryUserId = allAdmins[0]?.userId || adminUserId;
+  const moderatorPrimaryUserId = allModerators[0]?.userId || modUserId;
+  const moderatorSecondaryUserId = allModerators[1]?.userId || moderatorPrimaryUserId;
+  const employerUserIds = allEmployers.map((e) => e.userId);
+  const freelancerUserIds = allFreelancers.map((f) => f.userId);
+
+  const conversationBlueprints = [
+    {
+      participants: [adminPrimaryUserId, moderatorSecondaryUserId],
+      messages: [
+        {
+          from: adminPrimaryUserId,
+          to: moderatorSecondaryUserId,
+          text: "Please prioritize pending employer KYC approvals and flag any compliance blockers.",
+          createdAt: daysAgo(2),
+          isRead: true,
+        },
+        {
+          from: moderatorSecondaryUserId,
+          to: adminPrimaryUserId,
+          text: "Acknowledged. Two employer submissions are pending verification; I am collecting tax documents for final review.",
+          createdAt: daysAgo(1),
+          isRead: true,
+        },
+      ],
+    },
+    {
+      participants: [pick(employerUserIds, 1), pick(freelancerUserIds, 2)],
+      messages: [
+        {
+          from: pick(employerUserIds, 1),
+          to: pick(freelancerUserIds, 2),
+          text: "Can we align tomorrow on API contract changes for the billing module?",
+          createdAt: daysAgo(3),
+          isRead: true,
+        },
+        {
+          from: pick(freelancerUserIds, 2),
+          to: pick(employerUserIds, 1),
+          text: "Yes, I have prepared endpoint diffs and migration notes for review.",
+          createdAt: daysAgo(2),
+          isRead: true,
+        },
+      ],
+    },
+    {
+      participants: [pick(employerUserIds, 2), pick(freelancerUserIds, 4)],
+      messages: [
+        {
+          from: pick(employerUserIds, 2),
+          to: pick(freelancerUserIds, 4),
+          text: "The previous project was great. Are you available for a rehiring sprint next week?",
+          createdAt: daysAgo(6),
+          isRead: true,
+        },
+        {
+          from: pick(freelancerUserIds, 4),
+          to: pick(employerUserIds, 2),
+          text: "Absolutely, share the scope and I will submit a milestone plan with revised estimate.",
+          createdAt: daysAgo(5),
+          isRead: false,
+        },
+      ],
+    },
+    {
+      participants: [pick(freelancerUserIds, 1), moderatorPrimaryUserId],
+      messages: [
+        {
+          from: pick(freelancerUserIds, 1),
+          to: moderatorPrimaryUserId,
+          text: "Need guidance on payment request escalation for milestone 2.",
+          createdAt: daysAgo(4),
+          isRead: true,
+        },
+        {
+          from: moderatorPrimaryUserId,
+          to: pick(freelancerUserIds, 1),
+          text: "Please attach deliverable proof and timestamps; I will notify the employer and open mediation.",
+          createdAt: daysAgo(3),
+          isRead: true,
+        },
+      ],
+    },
+    {
+      participants: [pick(employerUserIds, 3), moderatorSecondaryUserId],
+      messages: [
+        {
+          from: pick(employerUserIds, 3),
+          to: moderatorSecondaryUserId,
+          text: "Can we review the complaint resolution notes before closure?",
+          createdAt: daysAgo(2),
+          isRead: true,
+        },
+        {
+          from: moderatorSecondaryUserId,
+          to: pick(employerUserIds, 3),
+          text: "Yes, I have shared the final action points and timeline in the moderation thread.",
+          createdAt: daysAgo(1),
+          isRead: false,
+        },
+      ],
+    },
+  ];
+
+  const advancedConversations = [];
+  const advancedMessages = [];
+  conversationBlueprints.forEach((conv) => {
+    const conversationId = uuidv4();
+    const msgs = conv.messages.map((m) => ({
+      messageId: uuidv4(),
+      conversationId,
+      from: m.from,
+      to: m.to,
+      messageData: m.text,
+      isRead: Boolean(m.isRead),
+      readAt: m.isRead ? m.createdAt : null,
+      createdAt: m.createdAt,
+    }));
+
+    const last = msgs[msgs.length - 1];
+    advancedConversations.push({
+      conversationId,
+      participants: conv.participants,
+      lastMessage: {
+        messageId: last.messageId,
+        text: last.messageData,
+        sender: last.from,
+        timestamp: last.createdAt,
+      },
+      unreadCount: new Map([
+        [conv.participants[0], 0],
+        [conv.participants[1], last.isRead ? 0 : 1],
+      ]),
+    });
+
+    advancedMessages.push(...msgs);
+  });
+
+  await Conversation.insertMany(advancedConversations);
+  await Message.insertMany(advancedMessages);
+  advancedMetrics.conversationsAdded = advancedConversations.length;
+  advancedMetrics.messagesAdded = advancedMessages.length;
+
+  await Payment.deleteMany({});
+  const paymentEntries = [];
+  const mkOrderId = () => `order_${uuidv4().replace(/-/g, "").slice(0, 16)}`;
+  const mkPaymentId = () => `pay_${uuidv4().replace(/-/g, "").slice(0, 16)}`;
+
+  const premiumUsers = allRoleUsers.filter((u) => u.subscription === "Premium").slice(0, 8);
+  premiumUsers.forEach((u, idx) => {
+    const months = u.subscriptionDuration || 1;
+    const amountRupees = months >= 12 ? 9999 : 999;
+    paymentEntries.push({
+      paymentId: uuidv4(),
+      userId: u.userId,
+      razorpayOrderId: mkOrderId(),
+      razorpayPaymentId: mkPaymentId(),
+      razorpaySignature: `sig_${uuidv4().replace(/-/g, "").slice(0, 18)}`,
+      amount: amountRupees * 100,
+      currency: "INR",
+      status: idx % 5 === 0 ? "created" : "verified",
+      paymentType: "subscription",
+      metadata: {
+        planDuration: months,
+        planDurationText: months >= 12 ? "12 Months" : "1 Month",
+        planPrice: amountRupees,
+      },
+    });
+  });
+
+  const allSeededJobs = await JobListing.find({});
+  const allSeededJobsById = new Map(allSeededJobs.map((j) => [j.jobId, j]));
+
+  allSeededJobs
+    .filter((j) => j.isBoosted)
+    .slice(0, 5)
+    .forEach((j) => {
+      const employerDoc = employerByEmployerId.get(j.employerId);
+      if (!employerDoc) return;
+      const feeAmount = Math.round(j.budget * 0.04);
+      paymentEntries.push({
+        paymentId: uuidv4(),
+        userId: employerDoc.userId,
+        razorpayOrderId: mkOrderId(),
+        razorpayPaymentId: mkPaymentId(),
+        razorpaySignature: `sig_${uuidv4().replace(/-/g, "").slice(0, 18)}`,
+        amount: feeAmount * 100,
+        currency: "INR",
+        status: "verified",
+        paymentType: "boost",
+        metadata: {
+          jobId: j.jobId,
+          isBoosted: true,
+          feeRate: 4,
+          feeAmount,
+        },
+      });
+    });
+
+  allSeededJobs
+    .filter((j) => j.assignedFreelancer?.freelancerId)
+    .slice(0, 8)
+    .forEach((j, idx) => {
+      const employerDoc = employerByEmployerId.get(j.employerId);
+      if (!employerDoc) return;
+      const feeRate = (j.platformFeeRate || 2) + (j.applicationCapFeeRate || 0);
+      const feeAmount = Math.max(1000, Math.round((j.budget * feeRate) / 100));
+      paymentEntries.push({
+        paymentId: uuidv4(),
+        userId: employerDoc.userId,
+        razorpayOrderId: mkOrderId(),
+        razorpayPaymentId: mkPaymentId(),
+        razorpaySignature: idx % 3 === 0 ? null : `sig_${uuidv4().replace(/-/g, "").slice(0, 18)}`,
+        amount: feeAmount * 100,
+        currency: "INR",
+        status: idx % 4 === 0 ? "failed" : "verified",
+        paymentType: "platform_fee",
+        metadata: {
+          jobId: j.jobId,
+          isBoosted: Boolean(j.isBoosted),
+          feeRate,
+          feeAmount,
+        },
+      });
+    });
+
+  if (paymentEntries.length > 0) {
+    await Payment.insertMany(paymentEntries);
+  }
+  advancedMetrics.paymentsAdded = paymentEntries.length;
+
+  const extraQuizBlueprints = [
+    {
+      title: "Python Backend Engineering Quiz",
+      skillName: "Python",
+      passingScore: 60,
+      questions: [
+        {
+          text: "Which framework is commonly used for high-performance Python APIs?",
+          marks: 2,
+          options: [
+            { text: "FastAPI", isCorrect: true },
+            { text: "Laravel", isCorrect: false },
+            { text: "Rails", isCorrect: false },
+            { text: "Spring", isCorrect: false },
+          ],
+        },
+        {
+          text: "What does async/await primarily help with?",
+          marks: 2,
+          options: [
+            { text: "Styling code", isCorrect: false },
+            { text: "Writing non-blocking asynchronous flows", isCorrect: true },
+            { text: "Database indexing", isCorrect: false },
+            { text: "Type-checking", isCorrect: false },
+          ],
+        },
+        {
+          text: "Which data structure guarantees unique keys and fast lookup?",
+          marks: 1,
+          options: [
+            { text: "list", isCorrect: false },
+            { text: "dict", isCorrect: true },
+            { text: "tuple", isCorrect: false },
+            { text: "set", isCorrect: false },
+          ],
+        },
+      ],
+    },
+    {
+      title: "Node.js Distributed Systems Quiz",
+      skillName: "Node.js",
+      passingScore: 55,
+      questions: [
+        {
+          text: "Which primitive is useful for background job processing in Node ecosystems?",
+          marks: 2,
+          options: [
+            { text: "Redis-backed queues", isCorrect: true },
+            { text: "DOM events", isCorrect: false },
+            { text: "CSS transitions", isCorrect: false },
+            { text: "GraphQL SDL", isCorrect: false },
+          ],
+        },
+        {
+          text: "What is the purpose of idempotency in APIs?",
+          marks: 2,
+          options: [
+            { text: "Faster frontend rendering", isCorrect: false },
+            { text: "Safe retry behavior without duplicate side effects", isCorrect: true },
+            { text: "Smaller JSON payload", isCorrect: false },
+            { text: "Improved CSS maintainability", isCorrect: false },
+          ],
+        },
+        {
+          text: "Which HTTP status is best for successfully created resources?",
+          marks: 1,
+          options: [
+            { text: "200", isCorrect: false },
+            { text: "201", isCorrect: true },
+            { text: "400", isCorrect: false },
+            { text: "500", isCorrect: false },
+          ],
+        },
+      ],
+    },
+    {
+      title: "DevOps Reliability Quiz",
+      skillName: "DevOps",
+      passingScore: 60,
+      questions: [
+        {
+          text: "What is a blue-green deployment mainly used for?",
+          marks: 2,
+          options: [
+            { text: "Zero-downtime release switching", isCorrect: true },
+            { text: "Database normalization", isCorrect: false },
+            { text: "Image compression", isCorrect: false },
+            { text: "Frontend routing", isCorrect: false },
+          ],
+        },
+        {
+          text: "Which metric is directly related to service availability?",
+          marks: 2,
+          options: [
+            { text: "Error budget burn", isCorrect: true },
+            { text: "Bundle size", isCorrect: false },
+            { text: "Color contrast ratio", isCorrect: false },
+            { text: "Font kerning", isCorrect: false },
+          ],
+        },
+        {
+          text: "What is IaC?",
+          marks: 1,
+          options: [
+            { text: "Infrastructure as Code", isCorrect: true },
+            { text: "Integration as CSS", isCorrect: false },
+            { text: "Index as Cache", isCorrect: false },
+            { text: "Input as Command", isCorrect: false },
+          ],
+        },
+      ],
+    },
+    {
+      title: "System Design Fundamentals Quiz",
+      skillName: "System Design",
+      passingScore: 65,
+      questions: [
+        {
+          text: "What is horizontal scaling?",
+          marks: 2,
+          options: [
+            { text: "Adding more nodes to distribute load", isCorrect: true },
+            { text: "Increasing RAM in one server only", isCorrect: false },
+            { text: "Compressing logs", isCorrect: false },
+            { text: "Removing cache", isCorrect: false },
+          ],
+        },
+        {
+          text: "Why are message queues used in distributed systems?",
+          marks: 2,
+          options: [
+            { text: "To decouple producers and consumers", isCorrect: true },
+            { text: "To reduce typography issues", isCorrect: false },
+            { text: "To render SVG icons", isCorrect: false },
+            { text: "To avoid database backups", isCorrect: false },
+          ],
+        },
+        {
+          text: "What does eventual consistency imply?",
+          marks: 2,
+          options: [
+            { text: "Replicas may be temporarily stale but converge over time", isCorrect: true },
+            { text: "Writes are always globally synchronous", isCorrect: false },
+            { text: "No replication is allowed", isCorrect: false },
+            { text: "Cache is always disabled", isCorrect: false },
+          ],
+        },
+      ],
+    },
+  ];
+
+  const extraQuizzes = [];
+  for (const q of extraQuizBlueprints) {
+    const quiz = new Quiz({
+      title: q.title,
+      skillName: q.skillName,
+      description: `Advanced ${q.skillName} evaluation for real-world project readiness.`,
+      timeLimitMinutes: 18,
+      passingScore: q.passingScore,
+      maxViolations: 5,
+      violationPenaltyPercent: 5,
+      questions: q.questions,
+    });
+    await quiz.save();
+    extraQuizzes.push(quiz);
+  }
+  advancedMetrics.quizzesAdded = extraQuizzes.length;
+
+  const extraBadges = [];
+  for (const quiz of extraQuizzes) {
+    const badge = new Badge({
+      title: `${quiz.skillName} Specialist`,
+      skillName: quiz.skillName,
+      description: `Awarded for clearing ${quiz.title} with required score.`,
+      criteria: {
+        type: "pass_quiz",
+        quizId: String(quiz._id),
+        minPercentage: quiz.passingScore,
+      },
+    });
+    await badge.save();
+    extraBadges.push(badge);
+  }
+  advancedMetrics.badgesAdded = extraBadges.length;
+
+  const buildAttempt = (quiz, userId, pass, startedAgo) => {
+    const totalMarks = quiz.questions.reduce((sum, q) => sum + q.marks, 0);
+    const answers = quiz.questions.map((question, index) => {
+      const correctIndex = question.options.findIndex((opt) => opt.isCorrect);
+      const selectedOptionIndex =
+        pass || index < quiz.questions.length - 1
+          ? correctIndex
+          : (correctIndex + 1) % question.options.length;
+      const isCorrect = selectedOptionIndex === correctIndex;
+      return {
+        questionId: question._id,
+        selectedOptionIndex,
+        awardedMarks: isCorrect ? question.marks : 0,
+      };
+    });
+
+    const userMarks = answers.reduce((sum, a) => sum + a.awardedMarks, 0);
+    const percentage = Math.round((userMarks / totalMarks) * 100);
+
+    return {
+      userId,
+      quizId: quiz._id,
+      answers,
+      totalMarks,
+      userMarks,
+      percentage,
+      passed: percentage >= quiz.passingScore,
+      attemptNumber: 1,
+      status: "submitted",
+      startedAt: daysAgo(startedAgo),
+      submittedAt: daysAgo(Math.max(0, startedAgo - 1)),
+      createdAt: daysAgo(startedAgo),
+    };
+  };
+
+  const extraAttempts = [];
+  const awardedUserBadges = [];
+  extraQuizzes.forEach((quiz, idx) => {
+    const passUserId = pick(freelancerUserIds, idx);
+    const failUserId = pick(freelancerUserIds, idx + 3);
+    const passAttempt = buildAttempt(quiz, passUserId, true, 12 + idx);
+    const failAttempt = buildAttempt(quiz, failUserId, false, 10 + idx);
+    extraAttempts.push(passAttempt, failAttempt);
+
+    if (passAttempt.passed) {
+      const badgeDoc = extraBadges[idx];
+      awardedUserBadges.push({
+        userId: passUserId,
+        badgeId: badgeDoc._id,
+        awardedAt: daysAgo(9 + idx),
+      });
+    }
+  });
+
+  if (extraAttempts.length > 0) {
+    await Attempt.insertMany(extraAttempts);
+  }
+  advancedMetrics.attemptsAdded = extraAttempts.length;
+
+  if (awardedUserBadges.length > 0) {
+    await Promise.all(
+      awardedUserBadges.map((entry) =>
+        UserBadge.updateOne(
+          { userId: entry.userId, badgeId: entry.badgeId },
+          { $setOnInsert: entry },
+          { upsert: true },
+        ),
+      ),
+    );
+  }
+
+  const moderatorUsers = allModerators
+    .map((m) => userByUserId.get(m.userId))
+    .filter(Boolean);
+
+  const ratingTargets = [
+    ...allFreelancers.slice(0, 3).map((f) => {
+      const user = userByUserId.get(f.userId);
+      return {
+        userId: user.userId,
+        name: user.name,
+        role: "Freelancer",
+      };
+    }),
+    ...allEmployers.slice(0, 2).map((e) => {
+      const user = userByUserId.get(e.userId);
+      return {
+        userId: user.userId,
+        name: user.name,
+        role: "Employer",
+      };
+    }),
+  ];
+
+  const advancedAudits = ratingTargets.map((target, idx) => {
+    const reviewer = pick(moderatorUsers, idx);
+    const previousRating = 3.8 + (idx % 3) * 0.3;
+    const newRating = Math.min(5, previousRating + (idx % 2 === 0 ? 0.4 : -0.2));
+    return {
+      targetUserId: target.userId,
+      targetUserName: target.name,
+      targetUserRole: target.role,
+      previousRating,
+      newRating,
+      adjustment: Number((newRating - previousRating).toFixed(2)),
+      reason:
+        idx % 2 === 0
+          ? "Rating adjusted upward after verification of delivery quality, positive stakeholder feedback, and consistency across milestone submissions."
+          : "Rating adjusted after moderation review found communication and timeline deviations during active project execution.",
+      relatedComplaintId: null,
+      adjustedBy: reviewer.userId,
+      adjustedByName: reviewer.name,
+      adjustedByRole: "Moderator",
+      createdAt: daysAgo(4 + idx),
+    };
+  });
+
+  await RatingAudit.insertMany(advancedAudits);
+  advancedMetrics.auditsAdded = advancedAudits.length;
+
+  const allJobsForLinking = await JobListing.find({}).lean();
+  const jobsByEmployer = new Map();
+  const currentFreelancersByEmployer = new Map();
+  const previousFreelancersByEmployer = new Map();
+
+  allJobsForLinking.forEach((job) => {
+    if (!jobsByEmployer.has(job.employerId)) jobsByEmployer.set(job.employerId, []);
+    jobsByEmployer.get(job.employerId).push(job.jobId);
+
+    const assigned = job.assignedFreelancer || {};
+    if (assigned.freelancerId && assigned.status === "working") {
+      if (!currentFreelancersByEmployer.has(job.employerId)) {
+        currentFreelancersByEmployer.set(job.employerId, []);
+      }
+      currentFreelancersByEmployer.get(job.employerId).push({
+        freelancerId: assigned.freelancerId,
+        jobId: job.jobId,
+        startDate: assigned.startDate || job.postedDate,
+      });
+    }
+
+    if (assigned.freelancerId && ["finished", "left"].includes(assigned.status)) {
+      if (!previousFreelancersByEmployer.has(job.employerId)) {
+        previousFreelancersByEmployer.set(job.employerId, new Set());
+      }
+      previousFreelancersByEmployer.get(job.employerId).add(assigned.freelancerId);
+    }
+  });
+
+  await Promise.all(
+    allEmployers.map((emp) =>
+      Employer.updateOne(
+        { employerId: emp.employerId },
+        {
+          $set: {
+            jobsPosted: jobsByEmployer.get(emp.employerId) || [],
+            currentFreelancers: currentFreelancersByEmployer.get(emp.employerId) || [],
+            previouslyWorkedFreelancers: Array.from(
+              previousFreelancersByEmployer.get(emp.employerId) || new Set(),
+            ),
+          },
+        },
+      ),
+    ),
+  );
+
+  const allApplicationsForCover = await JobApplication.find({})
+    .sort({ appliedDate: -1 })
+    .lean();
+  const latestCoverByFreelancerId = new Map();
+  allApplicationsForCover.forEach((app) => {
+    if (!latestCoverByFreelancerId.has(app.freelancerId)) {
+      latestCoverByFreelancerId.set(app.freelancerId, app.coverMessage || "");
+    }
+  });
+
+  await Promise.all(
+    allFreelancers.map((fr) =>
+      User.updateOne(
+        { userId: fr.userId },
+        {
+          $set: {
+            lastCoverMessage: latestCoverByFreelancerId.get(fr.freelancerId) || "",
+          },
+        },
+      ),
+    ),
+  );
+
+  console.log(
+    `   [OK] Added ${advancedMetrics.moderatorsAdded} moderators, ${advancedMetrics.employersAdded} employers, ${advancedMetrics.freelancersAdded} freelancers`,
+  );
+  console.log(
+    `   [OK] Added ${advancedMetrics.jobsAdded} advanced jobs and ${advancedMetrics.applicationsAdded} linked applications`,
+  );
+  console.log(
+    `   [OK] Added ${advancedMetrics.conversationsAdded} conversations, ${advancedMetrics.messagesAdded} messages, ${advancedMetrics.paymentsAdded} payments`,
+  );
+  console.log(
+    `   [OK] Added ${advancedMetrics.quizzesAdded} quizzes, ${advancedMetrics.badgesAdded} badges, ${advancedMetrics.attemptsAdded} attempts`,
+  );
+
+  const finalCounts = {
+    users: await User.countDocuments(),
+    employers: await Employer.countDocuments(),
+    freelancers: await Freelancer.countDocuments(),
+    moderators: await Moderator.countDocuments(),
+    jobs: await JobListing.countDocuments(),
+    applications: await JobApplication.countDocuments(),
+    complaints: await Complaint.countDocuments(),
+    quizzes: await Quiz.countDocuments(),
+    badges: await Badge.countDocuments(),
+    attempts: await Attempt.countDocuments(),
+    feedback: await Feedback.countDocuments(),
+    questions: await Question.countDocuments(),
+    notifications: await Notification.countDocuments(),
+    conversations: await Conversation.countDocuments(),
+    messages: await Message.countDocuments(),
+    payments: await Payment.countDocuments(),
+    audits: await RatingAudit.countDocuments(),
+  };
 
   // ------------------------------------------------------
   // DONE
@@ -1794,19 +3451,17 @@ async function main() {
   console.log("DEMO SEED COMPLETE!");
   console.log("=".repeat(60));
   console.log("\nSummary:");
-  console.log(`   4 user profiles enriched`);
-  console.log(`   ${jobs.length} job listings (open/closed/in-progress/completed/left/boosted)`);
-  console.log(`   ${applications.length} job applications (pending/accepted)`);
-  console.log(`   ${complaints.length} complaints (pending/under review/resolved)`);
-  console.log(`   ${blogs.length} blog posts`);
-  console.log(`   2 quizzes with badges`);
-  console.log(`   2 quiz attempts + 2 badges awarded`);
-  console.log(`   ${feedbacks.length} feedback entries`);
-  console.log(`   ${questions.length} Q&A threads`);
-  console.log(`   2 conversations, ${messages1.length + messages2.length} messages`);
-  console.log(`   ${notifications.length} notifications`);
-  console.log(`   1 premium subscription (Employer)`);
-  console.log(`   ${audits.length} rating audit entries`);
+  console.log(`   Roles: ${finalCounts.employers} employers, ${finalCounts.freelancers} freelancers, ${finalCounts.moderators} moderators`);
+  console.log(`   ${finalCounts.jobs} job listings across multiple employers (boosted + normal)`);
+  console.log(`   ${finalCounts.applications} job applications (accepted/rejected/pending)`);
+  console.log(`   ${finalCounts.complaints} complaints with mixed statuses`);
+  console.log(`   ${blogs.length} blog posts (unchanged content)`);
+  console.log(`   ${finalCounts.quizzes} quizzes, ${finalCounts.badges} badges, ${finalCounts.attempts} attempts`);
+  console.log(`   ${finalCounts.feedback} feedback entries and ${finalCounts.audits} rating audit entries`);
+  console.log(`   ${finalCounts.questions} Q&A threads and ${finalCounts.notifications} notifications`);
+  console.log(`   ${finalCounts.conversations} conversations with ${finalCounts.messages} chat messages`);
+  console.log(`   ${finalCounts.payments} payment transactions for subscription/platform/boost flows`);
+  console.log(`   Total users in demo dataset: ${finalCounts.users}`);
   console.log("\nYou are ready to demo!\n");
 
   await mongoose.disconnect();

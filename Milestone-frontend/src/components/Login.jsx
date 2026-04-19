@@ -263,10 +263,10 @@ const Login = () => {
             <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
               <p className="text-base leading-relaxed mb-6 opacity-90 italic text-left">"Working with Milestone was an amazing experience! Their attention to detail, professionalism, and timely delivery exceeded my expectations. Highly recommended!"</p>
               <div className="flex items-center gap-4">
-                <img src="/assets/user_image.jpg" alt="Aman Raj" className="w-12 h-12 rounded-full object-cover border-2 border-white/30" />
+                <img src="/assets/user_image.jpg" alt="Peyush Bansal" className="w-12 h-12 rounded-full object-cover border-2 border-white/30" />
                 <div className="text-left">
-                  <strong className="block text-base font-semibold mb-0.5">Aman Raj</strong>
-                  <span className="text-sm opacity-80">CEO at Zapeds, Chennai, India</span>
+                  <strong className="block text-base font-semibold mb-0.5">Peyush Bansal</strong>
+                  <span className="text-sm opacity-80">CEO at Lenskart, Chennai, India</span>
                 </div>
               </div>
             </div>

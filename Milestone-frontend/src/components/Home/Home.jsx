@@ -18,27 +18,16 @@ const Home = () => {
 
   const freelancers = [
     {
-      name: 'Aman Raj',
-      title: 'Full Stack Developer',
-      avatar: '/assets/home/aman.png',
-      rating: 4.9,
-      reviews: 127,
-      completed: 89,
-      skills: ['React', 'Node.js', 'MongoDB'],
-      featured: true
-    },
-    {
-      name: 'Vanya Awasthi',
-      title: 'UI/UX Designer',
-      avatar: '/assets/home/vanya.png',
+      name: 'Abhishek Anand',
+      title: 'DevOps Engineer',
+      avatar: '/assets/home/abhishek.jpg',
       rating: 4.8,
-      reviews: 95,
-      completed: 76,
-      skills: ['Figma', 'Adobe XD', 'Prototyping'],
-      topRated: true
+      reviews: 103,
+      completed: 72,
+      skills: ['AWS', 'Docker', 'Kubernetes']
     },
     {
-      name: 'Deepak Kumar',
+      name: 'Deepak Anuragi',
       title: 'Data Scientist',
       avatar: '/assets/home/deepak.jpg',
       rating: 4.9,
@@ -47,7 +36,7 @@ const Home = () => {
       skills: ['Python', 'Machine Learning', 'Data Analysis']
     },
     {
-      name: 'Jayanth Patel',
+      name: 'E. Jayanth',
       title: 'Mobile Developer',
       avatar: '/assets/home/jayanth.png',
       rating: 4.7,
@@ -56,13 +45,24 @@ const Home = () => {
       skills: ['React Native', 'Flutter', 'iOS']
     },
     {
-      name: 'Abhishek Singh',
-      title: 'DevOps Engineer',
-      avatar: '/assets/home/abhishek.jpg',
+      name: 'Rejwanul Hoque',
+      title: 'Full Stack Developer',
+      avatar: '/assets/home/Rejwanul.jpg',
+      rating: 4.9,
+      reviews: 127,
+      completed: 89,
+      skills: ['React', 'Node.js', 'MongoDB'],
+      featured: true
+    },
+    {
+      name: 'Aryan Choudhary',
+      title: 'UI/UX Designer',
+      avatar: '/assets/home/aryan.jpg',
       rating: 4.8,
-      reviews: 103,
-      completed: 72,
-      skills: ['AWS', 'Docker', 'Kubernetes']
+      reviews: 95,
+      completed: 76,
+      skills: ['Figma', 'Adobe XD', 'Prototyping'],
+      topRated: true
     }
   ];
 
