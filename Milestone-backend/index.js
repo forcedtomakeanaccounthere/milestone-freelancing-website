@@ -194,6 +194,15 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Backend is running" });
 });
 
+// Root endpoint for platform probes (e.g., Render default checks)
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    message: "Milestone backend is running",
+    health: "/api/health",
+  });
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/employer", employerRoutes);
 app.use("/api/freelancer", freelancerRoutes);
