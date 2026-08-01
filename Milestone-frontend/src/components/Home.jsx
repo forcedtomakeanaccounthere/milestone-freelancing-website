@@ -47,7 +47,7 @@ const Home = () => {
     {
       name: 'Rejwanul Hoque',
       title: 'Full Stack Developer',
-      avatar: '/assets/home/Rejwanul.jpg',
+      avatar: '/assets/home/rejwanul.jpg',
       rating: 4.9,
       reviews: 127,
       completed: 89,
@@ -57,7 +57,7 @@ const Home = () => {
     {
       name: 'Aryan Choudhary',
       title: 'UI/UX Designer',
-      avatar: '/assets/home/Aryan.jpg',
+      avatar: '/assets/home/aryan.jpg',
       rating: 4.8,
       reviews: 95,
       completed: 76,

@@ -47,7 +47,7 @@ const Home = () => {
     {
       name: 'Rejwanul Hoque',
       title: 'Full Stack Developer',
-      avatar: '/assets/home/Rejwanul.jpg',
+      avatar: '/assets/home/rejwanul.jpg',
       rating: 4.9,
       reviews: 127,
       completed: 89,
